@@ -55,6 +55,15 @@ class Stream: public Print {
         int timedPeek();    // private method to peek stream with timeout
         int peekNextDigit(); // returns the next numeric digit in the stream or -1 if timeout
 
+        bool findUntilDefault(const char *target, size_t targetLen, const char *terminate, size_t termLen);
+        bool findUntilPeekAPI(const char *target, size_t targetLen, const char *terminate, size_t termLen);
+
+        size_t readBytesDefault(char *buffer, size_t length);
+        size_t readBytesPeekAPI(char *buffer, size_t length);
+
+        size_t readBytesUntilDefault(char terminator, char *buffer, size_t length);
+        size_t readBytesUntilPeekAPI(char terminator, char *buffer, size_t length);
+
     public:
         virtual int available() = 0;
         virtual int read() = 0;
@@ -86,7 +95,13 @@ class Stream: public Print {
             return findUntil((char *) target, terminator);
         }
 
-        bool findUntil(const char *target, size_t targetLen, const char *terminate, size_t termLen);   // as above but search ends if the terminate string is found
+        bool findUntil(const char *target, size_t targetLen, const char *terminate, size_t termLen) {   // as above but search ends if the terminate string is found
+            if(hasPeekBufferAPI()) {
+                return findUntilPeekAPI(target, targetLen, terminate, termLen);
+            } else {
+                return findUntilDefault(target, targetLen, terminate, termLen);
+            }
+        }
         bool findUntil(const uint8_t *target, size_t targetLen, const char *terminate, size_t termLen) {
             return findUntil((char *) target, targetLen, terminate, termLen);
         }
@@ -97,14 +112,27 @@ class Stream: public Print {
 
         float parseFloat();               // float version of parseInt
 
-        virtual size_t readBytes(char *buffer, size_t length); // read chars from stream into buffer
+        virtual size_t readBytes(char *buffer, size_t length) { // read chars from stream into buffer
+            IAMSLOW();
+            if(hasPeekBufferAPI()) {
+                return readBytesPeekAPI(buffer, length);
+            } else {
+                return readBytesDefault(buffer, length);
+            }
+        }
         virtual size_t readBytes(uint8_t *buffer, size_t length) {
             return readBytes((char *) buffer, length);
         }
         // terminates if length characters have been read or timeout (see setTimeout)
         // returns the number of characters placed in the buffer (0 means no valid data found)
 
-        size_t readBytesUntil(char terminator, char *buffer, size_t length); // as readBytes with terminator character
+        size_t readBytesUntil(char terminator, char *buffer, size_t length) { // as readBytes with terminator character
+            if(hasPeekBufferAPI()) {
+                return readBytesUntilPeekAPI(terminator, buffer, length);
+            } else {
+                return readBytesUntilDefault(terminator, buffer, length);
+            }
+        }
         size_t readBytesUntil(char terminator, uint8_t *buffer, size_t length) {
             return readBytesUntil(terminator, (char *) buffer, length);
         }

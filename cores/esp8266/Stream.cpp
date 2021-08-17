@@ -99,7 +99,7 @@ bool Stream::findUntil(const char *target, const char *terminator) {
 // reads data from the stream until the target string of the given length is found
 // search terminated if the terminator string is found
 // returns true if target string is found, false if terminated or timed out
-bool Stream::findUntil(const char *target, size_t targetLen, const char *terminator, size_t termLen) {
+bool Stream::findUntilDefault(const char *target, size_t targetLen, const char *terminator, size_t termLen) {
     size_t index = 0;  // maximum target string length is 64k bytes!
     size_t termIndex = 0;
     int c;
@@ -125,6 +125,57 @@ bool Stream::findUntil(const char *target, size_t targetLen, const char *termina
             termIndex = 0;
     }
     return false;
+}
+
+// does the same as above but using direct buffer access
+bool Stream::findUntilPeekAPI(const char *target, size_t targetLen, const char *terminator, size_t termLen) {
+    unsigned long pending = 0;
+    const char *buf;
+    char c;
+    size_t index = 0, termIndex = 0;
+    size_t bufSize, charsToConsume = 0;
+    bool res = false;
+
+    if (!target) {
+        return true;
+    }
+
+    while(pending < _timeout) {
+        while((bufSize = peekAvailable())) {
+            pending = 0;
+            buf = peekBuffer();
+            
+            do {
+                c = buf[charsToConsume++];
+                if(c != target[index])
+                    index = 0; // reset index if any char does not match
+
+                if(c == target[index]) {
+                    if(++index >= targetLen) { // return true if all chars in the target match
+                        res = true;
+                        goto exit;
+                    }
+                }
+
+                if(termLen > 0 && c == terminator[termIndex]) {
+                    if(++termIndex >= termLen)
+                        goto exit;       // return false if terminate string found before target string
+                } else {
+                    termIndex = 0;
+                }
+            } while(charsToConsume < bufSize);
+
+            peekConsume(charsToConsume);
+            charsToConsume = 0;
+        }
+        pending -= millis(); //accumulates yielding durations
+        yield();
+        pending += millis();
+    }
+
+exit:
+    peekConsume(charsToConsume);
+    return res;
 }
 
 // returns the first valid (long) integer value from the current position.
@@ -210,9 +261,7 @@ float Stream::parseFloat(char skipChar) {
 // returns the number of characters placed in the buffer
 // the buffer is NOT null terminated.
 //
-size_t Stream::readBytes(char *buffer, size_t length) {
-    IAMSLOW();
-
+size_t Stream::readBytesDefault(char *buffer, size_t length) {
     size_t count = 0;
     while(count < length) {
         int c = timedRead();
@@ -224,11 +273,32 @@ size_t Stream::readBytes(char *buffer, size_t length) {
     return count;
 }
 
+// same as above but using direct buffer access
+size_t Stream::readBytesPeekAPI(char *buffer, size_t length) {
+    size_t bytesRead = 0, bytesAvailable, bytesToRead;
+    unsigned long pending = 0;
+
+    while (pending < _timeout) {
+        while (length && (bytesAvailable = peekAvailable())) {
+            bytesToRead = min(length, bytesAvailable);
+            memcpy(buffer + bytesRead, peekBuffer(), bytesToRead);
+            peekConsume(bytesToRead);
+            bytesRead += bytesToRead;
+            length -= bytesToRead;
+        }
+
+        pending -= millis(); //accumulates yielding durations
+        yield();
+        pending += millis();
+    }
+
+    return bytesRead;
+}
+
 // as readBytes with terminator character
 // terminates if length characters have been read, timeout, or if the terminator character  detected
 // returns the number of characters placed in the buffer (0 means no valid data found)
-
-size_t Stream::readBytesUntil(char terminator, char *buffer, size_t length) {
+size_t Stream::readBytesUntilDefault(char terminator, char *buffer, size_t length) {
     if(length < 1)
         return 0;
     size_t index = 0;
@@ -241,6 +311,46 @@ size_t Stream::readBytesUntil(char terminator, char *buffer, size_t length) {
     }
     return index; // return number of characters, not including null terminator
 }
+
+// same as above but using direct buffer access
+size_t Stream::readBytesUntilPeekAPI(char terminator, char *buffer, size_t length) {
+    unsigned long pending = 0;
+    const char *buf;
+    char c;
+    size_t bufSize, bytesToConsume = 0, bytesRead = 0;
+
+    if (length < 1) {
+        return 0;
+    }
+
+    while(pending < _timeout) {
+        while((bufSize = peekAvailable())) {
+            pending = 0;
+            buf = peekBuffer();
+            
+            do {
+                c = buf[bytesToConsume];
+                if(c == terminator) {
+                    bytesRead += bytesToConsume - 1;
+                    peekConsume(bytesToConsume);
+                    return bytesRead;
+                }
+
+                *buffer++ = c;
+            } while(bytesToConsume < bufSize);
+
+            bytesRead += bytesToConsume;
+            peekConsume(bytesToConsume);
+            bytesToConsume = 0;
+        }
+        pending -= millis(); //accumulates yielding durations
+        yield();
+        pending += millis();
+    }
+
+    return bytesRead;
+}
+
 
 String Stream::readString() {
     String ret;
