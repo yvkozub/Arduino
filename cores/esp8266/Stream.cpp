@@ -25,6 +25,7 @@
 
 #define PARSE_TIMEOUT 1000  // default number of milli-seconds to wait
 #define NO_SKIP_CHAR  1  // a magic char not found in a valid ASCII numeric field
+#define PEEK_API_BUFFER_CHECK_PERIOD 50 
 
 // private method to read stream with timeout
 int Stream::timedRead() {
@@ -129,7 +130,8 @@ bool Stream::findUntilDefault(const char *target, size_t targetLen, const char *
 
 // does the same as above but using direct buffer access
 bool Stream::findUntilPeekAPI(const char *target, size_t targetLen, const char *terminator, size_t termLen) {
-    unsigned long pending = 0;
+    unsigned long attemptsToPeek = _timeout / PEEK_API_BUFFER_CHECK_PERIOD || 1;
+    unsigned long attemptsMade = 0;
     const char *buf;
     char c;
     size_t index = 0, termIndex = 0;
@@ -140,9 +142,8 @@ bool Stream::findUntilPeekAPI(const char *target, size_t targetLen, const char *
         return true;
     }
 
-    while(pending < _timeout) {
+    while(attemptsMade < attemptsToPeek) {
         while((bufSize = peekAvailable())) {
-            pending = 0;
             buf = peekBuffer();
             
             do {
@@ -168,9 +169,9 @@ bool Stream::findUntilPeekAPI(const char *target, size_t targetLen, const char *
             peekConsume(charsToConsume);
             charsToConsume = 0;
         }
-        pending -= millis(); //accumulates yielding durations
-        yield();
-        pending += millis();
+        
+        optimistic_yield(PEEK_API_BUFFER_CHECK_PERIOD * 1000);
+        attemptsMade++;
     }
 
 exit:
@@ -275,10 +276,11 @@ size_t Stream::readBytesDefault(char *buffer, size_t length) {
 
 // same as above but using direct buffer access
 size_t Stream::readBytesPeekAPI(char *buffer, size_t length) {
+    unsigned long attemptsToPeek = _timeout / PEEK_API_BUFFER_CHECK_PERIOD || 1;
+    unsigned long attemptsMade = 0;
     size_t bytesRead = 0, bytesAvailable, bytesToRead;
-    unsigned long pending = 0;
 
-    while (pending < _timeout) {
+    while (attemptsMade < attemptsToPeek) {
         while (length && (bytesAvailable = peekAvailable())) {
             bytesToRead = min(length, bytesAvailable);
             memcpy(buffer + bytesRead, peekBuffer(), bytesToRead);
@@ -287,9 +289,11 @@ size_t Stream::readBytesPeekAPI(char *buffer, size_t length) {
             length -= bytesToRead;
         }
 
-        pending -= millis(); //accumulates yielding durations
-        yield();
-        pending += millis();
+        if (!length) {
+            break;
+        }
+        optimistic_yield(PEEK_API_BUFFER_CHECK_PERIOD * 1000);
+        attemptsMade++;
     }
 
     return bytesRead;
@@ -314,7 +318,8 @@ size_t Stream::readBytesUntilDefault(char terminator, char *buffer, size_t lengt
 
 // same as above but using direct buffer access
 size_t Stream::readBytesUntilPeekAPI(char terminator, char *buffer, size_t length) {
-    unsigned long pending = 0;
+    unsigned long attemptsToPeek = _timeout / PEEK_API_BUFFER_CHECK_PERIOD || 1;
+    unsigned long attemptsMade = 0;
     const char *buf;
     char c;
     size_t bufSize, bytesToConsume = 0, bytesRead = 0;
@@ -323,9 +328,8 @@ size_t Stream::readBytesUntilPeekAPI(char terminator, char *buffer, size_t lengt
         return 0;
     }
 
-    while(pending < _timeout) {
+    while(attemptsMade < attemptsToPeek) {
         while((bufSize = peekAvailable())) {
-            pending = 0;
             buf = peekBuffer();
             
             do {
@@ -343,9 +347,12 @@ size_t Stream::readBytesUntilPeekAPI(char terminator, char *buffer, size_t lengt
             peekConsume(bytesToConsume);
             bytesToConsume = 0;
         }
-        pending -= millis(); //accumulates yielding durations
-        yield();
-        pending += millis();
+        
+        if (bytesRead == length) {
+            break;
+        }
+        optimistic_yield(PEEK_API_BUFFER_CHECK_PERIOD * 1000);
+        attemptsMade++;
     }
 
     return bytesRead;
