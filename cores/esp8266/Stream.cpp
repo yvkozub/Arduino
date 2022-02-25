@@ -335,7 +335,7 @@ size_t Stream::readBytesUntilPeekAPI(char terminator, char *buffer, size_t lengt
         while((bufSize = peekAvailable()) && bytesRead < length) {
             buf = peekBuffer();
 
-            bytesToConsume = (length - bytesRead, bufSize);
+            bytesToConsume = min(length - bytesRead, bufSize);
             terminatorPos = reinterpret_cast<char*>(memchr(buf, terminator, bytesToConsume));
 
             if (terminatorPos) {
