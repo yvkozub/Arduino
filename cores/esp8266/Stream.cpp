@@ -323,6 +323,7 @@ size_t Stream::readBytesUntilPeekAPI(char terminator, char *buffer, size_t lengt
     unsigned long attemptsToPeek = _timeout / PEEK_API_BUFFER_CHECK_PERIOD || 1;
     unsigned long attemptsMade = 0;
     const char *buf;
+    char *terminatorPos = nullptr;
     char c;
     size_t bufSize, bytesToConsume = 0, bytesRead = 0;
 
@@ -331,20 +332,18 @@ size_t Stream::readBytesUntilPeekAPI(char terminator, char *buffer, size_t lengt
     }
 
     while(attemptsMade < attemptsToPeek) {
-        while((bufSize = peekAvailable())) {
+        while((bufSize = peekAvailable()) && bytesRead < length) {
             buf = peekBuffer();
+
+            bytesToConsume = (length - bytesRead, bufSize);
+            terminatorPos = reinterpret_cast<char*>(memchr(buf, terminator, bytesToConsume));
+
+            if (terminatorPos) {
+                bytesToConsume = terminatorPos - buf;
+            }
+
+            memcpy(buffer, buf, bytesToConsume);
             
-            do {
-                c = buf[bytesToConsume];
-                if(c == terminator) {
-                    bytesRead += bytesToConsume - 1;
-                    peekConsume(bytesToConsume);
-                    return bytesRead;
-                }
-
-                *buffer++ = c;
-            } while(bytesToConsume < bufSize);
-
             bytesRead += bytesToConsume;
             peekConsume(bytesToConsume);
             bytesToConsume = 0;
