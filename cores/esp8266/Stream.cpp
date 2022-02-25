@@ -175,7 +175,9 @@ bool Stream::findUntilPeekAPI(const char *target, size_t targetLen, const char *
     }
 
 exit:
-    peekConsume(charsToConsume);
+    if (charsToConsume) {
+        peekConsume(charsToConsume);
+    }
     return res;
 }
 
